@@ -35,7 +35,9 @@ type App struct {
 var cmdQueue = make(chan *Command)
 
 func (a *App) Enqueue(cmd *Command, reply *EnqueuedCommand) error {
-	cmdQueue <- cmd
+	go func() {
+		cmdQueue <- cmd
+	}()
 	reply.Command = *cmd
 	reply.EnqueuedAt = time.Now()
 	return nil
