@@ -24,6 +24,7 @@ func main() {
 		}
 	}
 
+	app.Enqueue(cmd)
 	app.Serve()
 }
 
@@ -31,14 +32,21 @@ type App struct {
 	sockAddress string
 	server      *Server
 	cmdQueue    chan *Command
+	done        chan bool
 }
 
 func (a *App) processQueue() {
+	idleTimeout := make(<-chan time.Time)
 	for {
 		select {
+		case <-idleTimeout:
+			a.done <- true
+			return
 		case cmd := <-a.cmdQueue:
 			log.Printf("worker: got job: %s", cmd)
-			a.execute(cmd)
+			a.Execute(cmd)
+			log.Println("worker: done, setting up timer")
+			idleTimeout = time.After(time.Second * 20)
 		}
 	}
 }
@@ -71,8 +79,10 @@ func (a *App) TryEnqueue(cmd *Command) (*EnqueuedCommand, error) {
 }
 
 func (a *App) Serve() {
+	go a.processQueue()
+
 	if err := os.RemoveAll(a.sockAddress); err != nil {
-		log.Printf("Error removing old socket file: %s\n", err)
+		log.Printf("failed to remove old socket file: %s\n", err)
 	}
 
 	log.Println("assuming server role")
@@ -83,24 +93,17 @@ func (a *App) Serve() {
 
 	err = rpc.Register(a.server)
 	if err != nil {
-		log.Fatal("Register error:", err)
+		log.Fatal("failed to set up rpc:", err)
 	}
 	rpc.HandleHTTP()
 
 	fmt.Println("listening on", a.sockAddress)
 	go http.Serve(sock, nil)
 
-	go func() {
-		for {
-			select {
-			case <-done:
-				close(a.cmdQueue)
-				sock.Close()
-			}
-		}
-	}()
-
-	a.processQueue()
+	<-a.done
+	log.Println("idle timeout reached, shutting down")
+	close(a.cmdQueue)
+	sock.Close()
 }
 
 func (a *App) ParseCommand(args []string, env []string) (*Command, error) {
@@ -118,7 +121,7 @@ func (a *App) ParseCommand(args []string, env []string) (*Command, error) {
 	}, nil
 }
 
-func (a *App) execute(cmd *Command) {
+func (a *App) Execute(cmd *Command) {
 	log.Printf("executing: %+v\n", cmd.Command)
 
 	c := exec.Command(cmd.Command, cmd.Args...)
@@ -129,7 +132,7 @@ func (a *App) execute(cmd *Command) {
 
 	err := c.Start()
 	if err != nil {
-		log.Printf("failed to execute command %s: %s\n", cmd.Command, err)
+		log.Printf("failed to Execute command %s: %s\n", cmd.Command, err)
 		return
 	}
 
@@ -149,6 +152,7 @@ func NewApp(sockAddress string) *App {
 	a := &App{
 		sockAddress: sockAddress,
 		cmdQueue:    make(chan *Command),
+		done:        make(chan bool),
 	}
 	a.server = &Server{app: a}
 	return a
@@ -163,5 +167,3 @@ func (s *Server) Enqueue(cmd *Command, reply *EnqueuedCommand) error {
 	*reply = *enqueued
 	return err
 }
-
-var done = make(chan bool)

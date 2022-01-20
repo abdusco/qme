@@ -9,7 +9,7 @@ type Command struct {
 	Env              []string
 }
 
-func (c Command) String() string {
+func (c *Command) String() string {
 	return c.Command
 }
 
