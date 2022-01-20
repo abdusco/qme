@@ -15,7 +15,7 @@ import (
 func main() {
 	app := NewApp("/tmp/qme.sock")
 
-	cmd, err := newCommand(os.Args, os.Environ())
+	cmd, err := app.ParseCommand(os.Args, os.Environ())
 	if err == nil {
 		enqueued, err := app.TryEnqueue(cmd)
 		if err == nil {
@@ -27,34 +27,18 @@ func main() {
 	app.Serve()
 }
 
-type Command struct {
-	WorkingDirectory string
-	Command          string
-	Args             []string
-	Env              []string
-}
-
-func (c Command) String() string {
-	return c.Command
-}
-
-type EnqueuedCommand struct {
-	Command
-	EnqueuedAt time.Time
-}
-
 type App struct {
 	sockAddress string
 	server      *Server
 	cmdQueue    chan *Command
 }
 
-func (a App) processQueue() {
+func (a *App) processQueue() {
 	for {
 		select {
 		case cmd := <-a.cmdQueue:
 			log.Printf("worker: got job: %s", cmd)
-			execute(cmd)
+			a.execute(cmd)
 		}
 	}
 }
@@ -69,7 +53,7 @@ func (a *App) Enqueue(cmd *Command) (*EnqueuedCommand, error) {
 	}, nil
 }
 
-func (a App) TryEnqueue(cmd *Command) (*EnqueuedCommand, error) {
+func (a *App) TryEnqueue(cmd *Command) (*EnqueuedCommand, error) {
 	client, err := rpc.DialHTTP("unix", a.sockAddress)
 	if err != nil {
 		return nil, err
@@ -119,26 +103,7 @@ func (a *App) Serve() {
 	a.processQueue()
 }
 
-func NewApp(sockAddress string) *App {
-	a := &App{
-		sockAddress: sockAddress,
-		cmdQueue:    make(chan *Command),
-	}
-	a.server = &Server{app: a}
-	return a
-}
-
-type Server struct {
-	app *App
-}
-
-func (s *Server) Enqueue(cmd *Command, reply *EnqueuedCommand) error {
-	enqueued, err := s.app.Enqueue(cmd)
-	*reply = *enqueued
-	return err
-}
-
-func newCommand(args []string, env []string) (*Command, error) {
+func (a *App) ParseCommand(args []string, env []string) (*Command, error) {
 	if len(args) < 2 {
 		return nil, errors.New("usage: qme <command> <args>")
 	}
@@ -153,9 +118,7 @@ func newCommand(args []string, env []string) (*Command, error) {
 	}, nil
 }
 
-var done = make(chan bool)
-
-func execute(cmd *Command) {
+func (a *App) execute(cmd *Command) {
 	log.Printf("executing: %+v\n", cmd.Command)
 
 	c := exec.Command(cmd.Command, cmd.Args...)
@@ -181,3 +144,24 @@ func execute(cmd *Command) {
 
 	log.Printf("command finished: %s\n", c.ProcessState)
 }
+
+func NewApp(sockAddress string) *App {
+	a := &App{
+		sockAddress: sockAddress,
+		cmdQueue:    make(chan *Command),
+	}
+	a.server = &Server{app: a}
+	return a
+}
+
+type Server struct {
+	app *App
+}
+
+func (s *Server) Enqueue(cmd *Command, reply *EnqueuedCommand) error {
+	enqueued, err := s.app.Enqueue(cmd)
+	*reply = *enqueued
+	return err
+}
+
+var done = make(chan bool)
