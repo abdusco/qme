@@ -12,7 +12,20 @@ import (
 	"time"
 )
 
-const sockAddr = "/tmp/qme.sock"
+func main() {
+	app := NewApp("/tmp/qme.sock")
+
+	cmd, err := newCommand(os.Args, os.Environ())
+	if err == nil {
+		enqueued, err := app.TryEnqueue(cmd)
+		if err == nil {
+			fmt.Printf("enqueued %s at %s\n", cmd, enqueued.EnqueuedAt)
+			return
+		}
+	}
+
+	app.Serve()
+}
 
 type Command struct {
 	WorkingDirectory string
@@ -42,8 +55,6 @@ func (a App) processQueue() {
 		case cmd := <-a.cmdQueue:
 			log.Printf("worker: got job: %s", cmd)
 			execute(cmd)
-		case <-done:
-			return
 		}
 	}
 }
@@ -59,7 +70,7 @@ func (a *App) Enqueue(cmd *Command) (*EnqueuedCommand, error) {
 }
 
 func (a App) TryEnqueue(cmd *Command) (*EnqueuedCommand, error) {
-	client, err := rpc.DialHTTP("unix", sockAddr)
+	client, err := rpc.DialHTTP("unix", a.sockAddress)
 	if err != nil {
 		return nil, err
 	}
@@ -73,6 +84,39 @@ func (a App) TryEnqueue(cmd *Command) (*EnqueuedCommand, error) {
 	}
 
 	return reply, nil
+}
+
+func (a *App) Serve() {
+	if err := os.RemoveAll(a.sockAddress); err != nil {
+		log.Printf("Error removing old socket file: %s\n", err)
+	}
+
+	log.Println("assuming server role")
+	sock, err := net.Listen("unix", a.sockAddress)
+	if err != nil {
+		log.Fatalf("failed to listen: %s\n", err)
+	}
+
+	err = rpc.Register(a.server)
+	if err != nil {
+		log.Fatal("Register error:", err)
+	}
+	rpc.HandleHTTP()
+
+	fmt.Println("listening on", a.sockAddress)
+	go http.Serve(sock, nil)
+
+	go func() {
+		for {
+			select {
+			case <-done:
+				close(a.cmdQueue)
+				sock.Close()
+			}
+		}
+	}()
+
+	a.processQueue()
 }
 
 func NewApp(sockAddress string) *App {
@@ -92,40 +136,6 @@ func (s *Server) Enqueue(cmd *Command, reply *EnqueuedCommand) error {
 	enqueued, err := s.app.Enqueue(cmd)
 	*reply = *enqueued
 	return err
-}
-
-func main() {
-	app := NewApp("/tmp/qme.sock")
-
-	cmd, err := newCommand(os.Args, os.Environ())
-	if err == nil {
-		enqueued, err := app.TryEnqueue(cmd)
-		if err == nil {
-			fmt.Printf("enqueued %s at %s", cmd, enqueued.EnqueuedAt)
-			return
-		}
-	}
-
-	if err := os.RemoveAll(sockAddr); err != nil {
-		log.Printf("Error removing old socket file: %s", err)
-	}
-
-	log.Println("assuming server role")
-	sock, err := net.Listen("unix", sockAddr)
-	if err != nil {
-		log.Fatalf("failed to listen: %s\n", err)
-	}
-
-	err = rpc.Register(app.server)
-	if err != nil {
-		log.Fatal("Register error:", err)
-	}
-	rpc.HandleHTTP()
-
-	fmt.Println("listening on", sockAddr)
-	go http.Serve(sock, nil)
-
-	app.processQueue()
 }
 
 func newCommand(args []string, env []string) (*Command, error) {
