@@ -31,20 +31,53 @@ type EnqueuedCommand struct {
 }
 
 type App struct {
+	server   *Server
+	cmdQueue chan *Command
 }
 
-var cmdQueue = make(chan *Command)
+func (a App) processQueue() {
+	for {
+		select {
+		case cmd := <-a.cmdQueue:
+			log.Printf("worker: got job: %s", cmd)
+			execute(cmd)
+		case <-done:
+			return
+		}
+	}
+}
 
-func (a *App) Enqueue(cmd *Command, reply *EnqueuedCommand) error {
+func (a *App) Enqueue(cmd *Command) (*EnqueuedCommand, error) {
 	go func() {
-		cmdQueue <- cmd
+		a.cmdQueue <- cmd
 	}()
-	reply.Command = *cmd
-	reply.EnqueuedAt = time.Now()
-	return nil
+	return &EnqueuedCommand{
+		Command:    *cmd,
+		EnqueuedAt: time.Now(),
+	}, nil
+}
+
+func NewApp() *App {
+	a := &App{
+		cmdQueue: make(chan *Command),
+	}
+	a.server = &Server{app: a}
+	return a
+}
+
+type Server struct {
+	app *App
+}
+
+func (s *Server) Enqueue(cmd *Command, reply *EnqueuedCommand) error {
+	enqueued, err := s.app.Enqueue(cmd)
+	*reply = *enqueued
+	return err
 }
 
 func main() {
+	app := NewApp()
+
 	client, err := rpc.DialHTTP("unix", sockAddr)
 	if err == nil {
 		log.Println("connected. assuming client role")
@@ -56,9 +89,9 @@ func main() {
 		}
 
 		var reply *EnqueuedCommand
-		err = client.Call("App.Enqueue", cmd, &reply)
+		err = client.Call("Server.Enqueue", cmd, &reply)
 		if err != nil {
-			log.Fatal("App.Enqueue error:", err)
+			log.Fatal("Server.Enqueue error:", err)
 		}
 		log.Printf("enqueued %s at %s", cmd, reply.EnqueuedAt)
 		return
@@ -74,7 +107,7 @@ func main() {
 		log.Fatalf("failed to listen: %s\n", err)
 	}
 
-	err = rpc.Register(new(App))
+	err = rpc.Register(app.server)
 	if err != nil {
 		log.Fatal("Register error:", err)
 	}
@@ -83,7 +116,7 @@ func main() {
 	fmt.Println("listening on", sockAddr)
 	go http.Serve(sock, nil)
 
-	processQueue()
+	app.processQueue()
 }
 
 func newCommand(args []string, env []string) (*Command, error) {
@@ -102,18 +135,6 @@ func newCommand(args []string, env []string) (*Command, error) {
 }
 
 var done = make(chan bool)
-
-func processQueue() {
-	for {
-		select {
-		case cmd := <-cmdQueue:
-			log.Printf("worker: got job: %s", cmd)
-			execute(cmd)
-		case <-done:
-			return
-		}
-	}
-}
 
 func execute(cmd *Command) {
 	log.Printf("executing: %+v\n", cmd.Command)
