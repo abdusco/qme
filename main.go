@@ -1,8 +1,8 @@
 package main
 
 import (
-	"errors"
 	"fmt"
+	"github.com/pkg/errors"
 	"log"
 	"net"
 	"net/http"
@@ -31,8 +31,9 @@ type EnqueuedCommand struct {
 }
 
 type App struct {
-	server   *Server
-	cmdQueue chan *Command
+	sockAddress string
+	server      *Server
+	cmdQueue    chan *Command
 }
 
 func (a App) processQueue() {
@@ -57,9 +58,27 @@ func (a *App) Enqueue(cmd *Command) (*EnqueuedCommand, error) {
 	}, nil
 }
 
-func NewApp() *App {
+func (a App) TryEnqueue(cmd *Command) (*EnqueuedCommand, error) {
+	client, err := rpc.DialHTTP("unix", sockAddr)
+	if err != nil {
+		return nil, err
+	}
+	log.Println("connected. assuming client role")
+	defer client.Close()
+
+	var reply *EnqueuedCommand
+	err = client.Call("Server.Enqueue", cmd, &reply)
+	if err != nil {
+		return nil, errors.Wrap(err, "send command to server")
+	}
+
+	return reply, nil
+}
+
+func NewApp(sockAddress string) *App {
 	a := &App{
-		cmdQueue: make(chan *Command),
+		sockAddress: sockAddress,
+		cmdQueue:    make(chan *Command),
 	}
 	a.server = &Server{app: a}
 	return a
@@ -76,25 +95,15 @@ func (s *Server) Enqueue(cmd *Command, reply *EnqueuedCommand) error {
 }
 
 func main() {
-	app := NewApp()
+	app := NewApp("/tmp/qme.sock")
 
-	client, err := rpc.DialHTTP("unix", sockAddr)
+	cmd, err := newCommand(os.Args, os.Environ())
 	if err == nil {
-		log.Println("connected. assuming client role")
-		defer client.Close()
-
-		cmd, err := newCommand(os.Args, os.Environ())
-		if err != nil {
-			log.Fatalln(err)
+		enqueued, err := app.TryEnqueue(cmd)
+		if err == nil {
+			fmt.Printf("enqueued %s at %s", cmd, enqueued.EnqueuedAt)
+			return
 		}
-
-		var reply *EnqueuedCommand
-		err = client.Call("Server.Enqueue", cmd, &reply)
-		if err != nil {
-			log.Fatal("Server.Enqueue error:", err)
-		}
-		log.Printf("enqueued %s at %s", cmd, reply.EnqueuedAt)
-		return
 	}
 
 	if err := os.RemoveAll(sockAddr); err != nil {
