@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"log"
 	"net"
@@ -48,24 +49,18 @@ func main() {
 	if err == nil {
 		log.Println("connected. assuming client role")
 		defer client.Close()
-		var reply *EnqueuedCommand
-		cwd, _ := os.Getwd()
-		if len(os.Args) < 3 {
-			log.Fatalln("usage: qme <command> <args>")
+
+		cmd, err := newCommand(os.Args, os.Environ())
+		if err != nil {
+			log.Fatalln(err)
 		}
 
-		cmd, args := os.Args[1], os.Args[2:]
-		item := &Command{
-			WorkingDirectory: cwd,
-			Command:          cmd,
-			Args:             args,
-			Env:              os.Environ(),
-		}
-		err = client.Call("App.Enqueue", item, &reply)
+		var reply *EnqueuedCommand
+		err = client.Call("App.Enqueue", cmd, &reply)
 		if err != nil {
 			log.Fatal("App.Enqueue error:", err)
 		}
-		log.Printf("enqueued %s %s at %s", cmd, args, reply.EnqueuedAt)
+		log.Printf("enqueued %s at %s", cmd, reply.EnqueuedAt)
 		return
 	}
 
@@ -85,18 +80,37 @@ func main() {
 	}
 	rpc.HandleHTTP()
 
-	go worker()
-
 	fmt.Println("listening on", sockAddr)
-	log.Fatalln(http.Serve(sock, nil))
+	go http.Serve(sock, nil)
+
+	processQueue()
 }
 
-func worker() {
+func newCommand(args []string, env []string) (*Command, error) {
+	if len(args) < 2 {
+		return nil, errors.New("usage: qme <command> <args>")
+	}
+
+	cwd, _ := os.Getwd()
+	cmd, args := args[1], args[2:]
+	return &Command{
+		WorkingDirectory: cwd,
+		Command:          cmd,
+		Args:             args,
+		Env:              env,
+	}, nil
+}
+
+var done = make(chan bool)
+
+func processQueue() {
 	for {
 		select {
 		case cmd := <-cmdQueue:
 			log.Printf("worker: got job: %s", cmd)
 			execute(cmd)
+		case <-done:
+			return
 		}
 	}
 }
