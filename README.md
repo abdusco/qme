@@ -22,10 +22,10 @@ will also keep an RPC server running in the background.
 
 ```shell
 $ ./qme sleep 5
-2022/01/21 10:28:25 enqueued sleep
-2022/01/21 10:28:25 assuming server role
-2022/01/21 10:28:25 listening on /tmp/qme.sock
-2022/01/21 10:28:25 started executing 'sleep' with pid 61122
+2022/01/21 10:54:12 enqueueing 'sleep'
+2022/01/21 10:54:12 assuming server role
+2022/01/21 10:54:12 listening on /tmp/qme.sock
+2022/01/21 10:54:12 started executing 'sleep' with pid 62775
 2022/01/21 10:28:30 finished: exit status 0
 2022/01/21 10:28:30 idling...
 2022/01/21 10:28:50 idle timeout reached, shutting down
@@ -36,20 +36,30 @@ be executed there.
 
 ```shell
 # this will be executed on the server process
-$ ./qme . sleep 10
-2022/01/21 10:30:33 connected. assuming client role
-2022/01/21 10:30:33 enqueued 'sleep'
+$ ./qme sleep 1
+2022/01/21 10:54:13 connected. assuming client role
+2022/01/21 10:54:13 enqueued 'sleep'
+
+$ ./qme sleep 2
+2022/01/21 10:54:14 connected. assuming client role
+2022/01/21 10:54:14 enqueued 'sleep'
 ```
 
 ```shell
 # server process accepts the command, and starts executing it  
 ...
 2022/01/21 10:30:36 idling...
-2022/01/21 10:30:36 enqueued sleep
-2022/01/21 10:30:36 started executing 'sleep' with pid 61308
-2022/01/21 10:30:46 finished: exit status 0
-2022/01/21 10:30:46 idling...
-...
+2022/01/21 10:54:13 enqueueing 'sleep'  # <-- command accepted into the queue
+2022/01/21 10:54:14 enqueueing 'sleep'  # <-- 
+2022/01/21 10:54:22 finished: exit status 0
+2022/01/21 10:54:22 idling...
+2022/01/21 10:54:22 started executing 'sleep' with pid 62804 # <-- command is now executing
+2022/01/21 10:54:23 finished: exit status 0
+2022/01/21 10:54:23 idling...
+2022/01/21 10:54:23 started executing 'sleep' with pid 62805
+2022/01/21 10:54:25 finished: exit status 0
+2022/01/21 10:54:25 idling...
+2022/01/21 10:54:45 idle timeout reached, shutting down # <-- server process shuts down if there's nothing to do
 ```
 
 If the server already shut down, it will assume the server role and start executing & listening again. So no matter when
@@ -58,7 +68,7 @@ same time.
 
 
 ## TODO
-
+- [ ] Add tests!
 - [ ] Make idle timeout configurable
 - [ ] Support separate queues (e.g. one queue for CPU-heavy, another one for network-heavy, etc.)
 - [ ] Support command weights, so that important commands are executed first
