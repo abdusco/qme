@@ -31,9 +31,9 @@ type Clock interface {
 	Now() time.Time
 }
 
-type RealClock struct{}
+type DefaultClock struct{}
 
-func (RealClock) Now() time.Time {
+func (DefaultClock) Now() time.Time {
 	return time.Now()
 }
 
@@ -137,10 +137,10 @@ type CommandExecutor interface {
 	Execute(cmd *Command)
 }
 
-type OsCommandExecutor struct {
+type DefaultCommandExecutor struct {
 }
 
-func (e *OsCommandExecutor) Execute(cmd *Command) {
+func (e *DefaultCommandExecutor) Execute(cmd *Command) {
 	c := exec.Command(cmd.Command, cmd.Args...)
 	c.Stdout = os.Stdout
 	c.Stderr = os.Stderr
@@ -170,8 +170,8 @@ func NewApp(sockAddress string) *App {
 		sockAddress: sockAddress,
 		cmdQueue:    make(chan *Command),
 		done:        make(chan bool),
-		executor:    &OsCommandExecutor{},
-		clock:       &RealClock{},
+		executor:    &DefaultCommandExecutor{},
+		clock:       &DefaultClock{},
 	}
 	a.server = &Server{commandQueue: a}
 	return a
