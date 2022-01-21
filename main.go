@@ -32,6 +32,7 @@ type App struct {
 	server      *Server
 	cmdQueue    chan *Command
 	done        chan bool
+	executor    CommandExecutor
 }
 
 func (a *App) processQueue() {
@@ -42,7 +43,7 @@ func (a *App) processQueue() {
 			a.done <- true
 			return
 		case cmd := <-a.cmdQueue:
-			a.Execute(cmd)
+			a.executor.Execute(cmd)
 			log.Println("idling...")
 			idleTimeout = time.After(time.Second * 20)
 		}
@@ -121,7 +122,14 @@ func (a *App) ParseCommand(args []string, env []string) (*Command, error) {
 	}, nil
 }
 
-func (a *App) Execute(cmd *Command) {
+type CommandExecutor interface {
+	Execute(cmd *Command)
+}
+
+type OsCommandExecutor struct {
+}
+
+func (e *OsCommandExecutor) Execute(cmd *Command) {
 	c := exec.Command(cmd.Command, cmd.Args...)
 	c.Stdout = os.Stdout
 	c.Stderr = os.Stderr
@@ -151,17 +159,8 @@ func NewApp(sockAddress string) *App {
 		sockAddress: sockAddress,
 		cmdQueue:    make(chan *Command),
 		done:        make(chan bool),
+		executor:    &OsCommandExecutor{},
 	}
-	a.server = &Server{app: a}
+	a.server = &Server{commandQueue: a}
 	return a
-}
-
-type Server struct {
-	app *App
-}
-
-func (s *Server) Enqueue(cmd *Command, reply *EnqueuedCommand) error {
-	enqueued, err := s.app.Enqueue(cmd)
-	*reply = *enqueued
-	return err
 }
