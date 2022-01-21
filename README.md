@@ -14,7 +14,7 @@ In any terminal simply prefix your command with `qme`
 
 ```shell
 sleep 5  # executes the command directly
-qme sleep 5  # queues and executes the command
+./qme sleep 5  # queues and executes the command
 ```
 
 This will queue the command and start executing it right away, piping its `stdout` and `stderr` to the terminal, but it
@@ -36,7 +36,7 @@ be executed there.
 
 ```shell
 # this will be executed on the server process
-$ go run . sleep 10
+$ ./qme . sleep 10
 2022/01/21 10:30:33 connected. assuming client role
 2022/01/21 10:30:33 enqueued 'sleep'
 ```
