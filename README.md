@@ -1,6 +1,7 @@
 # qme (queue me)
 
-A simple queueing system for long-running commands. It allows you to queue up shell commands, and run them in order.
+A simple queueing system for long-running commands. It allows you to queue up shell commands from anywhere, and run them
+in order.
 
 This is useful for enqueueing long-running commands sharing a limited resource, like a video encoding (which pegs CPU at
 100%), rsync'ing files (which take up all upload bandwidth), or running a build script (which takes up all CPU).
@@ -17,7 +18,7 @@ sleep 5  # executes the command directly
 ./qme sleep 5  # queues and executes the command
 ```
 
-This will queue the command and start executing it right away, piping its `stdout` and `stderr` to the terminal, but it
+This will enqueue the command and start executing it right away, piping its `stdout` and `stderr` to the terminal, but it
 will also keep an RPC server running in the background.
 
 ```shell
@@ -31,8 +32,8 @@ $ ./qme sleep 5
 2022/01/21 10:28:50 idle timeout reached, shutting down
 ```
 
-So when you queue another task before the server shuts down (it timeouts in 20s), it will queue the command, and it will
-be executed there.
+So when you enqueue another task before the server process shuts down (it timeouts in 20s), it will connect & enqueue the
+command on the server process, and it will be executed there.
 
 ```shell
 # this will be executed on the server process
@@ -66,8 +67,8 @@ If the server already shut down, it will assume the server role and start execut
 & where you run `qme`, it will run the command now or after other queued commands finishes executing, but not at the
 same time.
 
-
 ## TODO
+
 - [ ] Add tests!
 - [ ] Make idle timeout configurable
 - [ ] Support separate queues (e.g. one queue for CPU-heavy, another one for network-heavy, etc.)
