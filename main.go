@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"github.com/pkg/errors"
 	"log"
 	"net"
@@ -17,9 +16,9 @@ func main() {
 
 	cmd, err := app.ParseCommand(os.Args, os.Environ())
 	if err == nil {
-		enqueued, err := app.TryEnqueue(cmd)
+		_, err := app.TryEnqueue(cmd)
 		if err == nil {
-			fmt.Printf("enqueued %s at %s\n", cmd, enqueued.EnqueuedAt)
+			log.Printf("enqueued %s at\n", cmd)
 			return
 		}
 	}
@@ -43,9 +42,8 @@ func (a *App) processQueue() {
 			a.done <- true
 			return
 		case cmd := <-a.cmdQueue:
-			log.Printf("worker: got job: %s", cmd)
 			a.Execute(cmd)
-			log.Println("worker: done, setting up timer")
+			log.Println("idling...")
 			idleTimeout = time.After(time.Second * 20)
 		}
 	}
@@ -54,6 +52,7 @@ func (a *App) processQueue() {
 func (a *App) Enqueue(cmd *Command) (*EnqueuedCommand, error) {
 	go func() {
 		a.cmdQueue <- cmd
+		log.Printf("enqueued %s\n", cmd)
 	}()
 	return &EnqueuedCommand{
 		Command:    *cmd,
@@ -97,10 +96,11 @@ func (a *App) Serve() {
 	}
 	rpc.HandleHTTP()
 
-	fmt.Println("listening on", a.sockAddress)
+	log.Println("listening on", a.sockAddress)
 	go http.Serve(sock, nil)
 
 	<-a.done
+
 	log.Println("idle timeout reached, shutting down")
 	close(a.cmdQueue)
 	sock.Close()
@@ -122,8 +122,6 @@ func (a *App) ParseCommand(args []string, env []string) (*Command, error) {
 }
 
 func (a *App) Execute(cmd *Command) {
-	log.Printf("executing: %+v\n", cmd.Command)
-
 	c := exec.Command(cmd.Command, cmd.Args...)
 	c.Stdout = os.Stdout
 	c.Stderr = os.Stderr
@@ -132,20 +130,20 @@ func (a *App) Execute(cmd *Command) {
 
 	err := c.Start()
 	if err != nil {
-		log.Printf("failed to Execute command %s: %s\n", cmd.Command, err)
+		log.Printf("failed to execute command %s: %s\n", cmd.Command, err)
 		return
 	}
 
-	log.Println("started executing command with pid", c.Process.Pid)
+	log.Printf("started executing '%s' with pid %d\n", cmd, c.Process.Pid)
 
 	err = c.Wait()
 	exitCode := c.ProcessState.ExitCode()
 	if err != nil && exitCode != 0 {
-		log.Printf("command failed. %s\n", c.ProcessState)
+		log.Printf("execution failed. %s\n", c.ProcessState)
 		return
 	}
 
-	log.Printf("command finished: %s\n", c.ProcessState)
+	log.Printf("finished: %s\n", c.ProcessState)
 }
 
 func NewApp(sockAddress string) *App {
