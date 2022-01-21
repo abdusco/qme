@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"github.com/pkg/errors"
 	"log"
 	"os/signal"
@@ -104,6 +105,9 @@ func (a *App) Run() {
 			log.Printf("enqueued '%s'\n", cmd)
 			return
 		}
+	} else {
+		fmt.Println(err)
+		return
 	}
 
 	signalCh := make(chan os.Signal, 1)
