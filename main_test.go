@@ -72,7 +72,7 @@ func (e *fakeExecutor) Execute(cmd *Command) {
 func TestApp_processQueue(t *testing.T) {
 	t.Run("queue executes a command then idles", func(t *testing.T) {
 		app := &App{
-			quit:        make(chan bool),
+			quitCh:      make(chan bool),
 			idleTimeout: 0,
 			cmdQueue:    make(chan *Command),
 			executor:    &fakeExecutor{},
@@ -80,7 +80,7 @@ func TestApp_processQueue(t *testing.T) {
 
 		go app.processQueue()
 		app.cmdQueue <- &Command{}
-		<-app.quit
+		<-app.quitCh
 
 		if !app.executor.(*fakeExecutor).executed {
 			t.Errorf("processQueue() did not execute command")

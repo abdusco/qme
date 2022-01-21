@@ -3,6 +3,9 @@ package main
 import (
 	"github.com/pkg/errors"
 	"log"
+	"os/signal"
+	"syscall"
+
 	//"net/rpc"
 	"os"
 	"os/exec"
@@ -27,21 +30,21 @@ func (defaultClock) Now() time.Time {
 type App struct {
 	rpc         *Server
 	cmdQueue    chan *Command
-	quit        chan bool
+	quitCh      chan bool
 	executor    CommandExecutor
 	clock       Clock
 	idleTimeout time.Duration
 }
 
-func (a *App) processQueue() {
+func (a *App) processQueue(killCh <-chan bool) {
 	timeout := make(<-chan time.Time)
 	for {
 		select {
 		case <-timeout:
-			a.quit <- true
+			a.quitCh <- true
 			return
 		case cmd := <-a.cmdQueue:
-			a.executor.Execute(cmd)
+			a.executor.Execute(cmd, killCh)
 			log.Println("idling...")
 			timeout = time.After(a.idleTimeout)
 		}
@@ -64,15 +67,17 @@ func (a *App) SendCommand(cmd *Command) (*EnqueuedCommand, error) {
 }
 
 func (a *App) Serve() {
-	go a.processQueue()
+	killCh := make(chan bool)
+	go a.processQueue(killCh)
 
-	stopSock := make(chan bool, 1)
-	go a.rpc.serve(stopSock)
+	stopSockCh := make(chan bool, 1)
+	go a.rpc.serve(stopSockCh)
 
-	<-a.quit
+	<-a.quitCh
 
-	log.Println("idle timeout reached, shutting down")
-	stopSock <- true
+	log.Println("shutting down")
+	killCh <- true
+	stopSockCh <- true
 	close(a.cmdQueue)
 }
 
@@ -101,18 +106,27 @@ func (a *App) Run() {
 		}
 	}
 
+	signalCh := make(chan os.Signal, 1)
+	signal.Notify(signalCh, syscall.SIGINT, syscall.SIGTERM)
+
+	go func() {
+		sig := <-signalCh
+		log.Printf("%s signal received\n", sig)
+		a.quitCh <- true
+	}()
+
 	a.Enqueue(cmd)
 	a.Serve()
 }
 
 type CommandExecutor interface {
-	Execute(cmd *Command)
+	Execute(cmd *Command, killCh <-chan bool)
 }
 
 type defaultCommandExecutor struct {
 }
 
-func (e *defaultCommandExecutor) Execute(cmd *Command) {
+func (e *defaultCommandExecutor) Execute(cmd *Command, killCh <-chan bool) {
 	c := exec.Command(cmd.Command, cmd.Args...)
 	c.Stdout = os.Stdout
 	c.Stderr = os.Stderr
@@ -127,6 +141,12 @@ func (e *defaultCommandExecutor) Execute(cmd *Command) {
 
 	log.Printf("started executing '%s' with pid %d\n", cmd, c.Process.Pid)
 
+	go func() {
+		<-killCh
+		log.Printf("killing '%s'\n", cmd)
+		c.Process.Kill()
+	}()
+
 	err = c.Wait()
 	exitCode := c.ProcessState.ExitCode()
 	if err != nil && exitCode != 0 {
@@ -140,7 +160,7 @@ func (e *defaultCommandExecutor) Execute(cmd *Command) {
 func NewApp(sockAddress string) *App {
 	a := &App{
 		cmdQueue:    make(chan *Command),
-		quit:        make(chan bool),
+		quitCh:      make(chan bool),
 		executor:    &defaultCommandExecutor{},
 		clock:       &defaultClock{},
 		idleTimeout: time.Second * 20,
