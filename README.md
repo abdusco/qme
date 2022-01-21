@@ -2,9 +2,11 @@
 
 A simple queueing system for long-running commands. It allows you to queue up shell commands, and run them in order.
 
-This is useful for enqueueing long-running commands sharing a limited resource, like a video encoding (which pegs CPU at 100%),
-rsync'ing files (which take up all upload bandwidth), or running a build script (which takes up all CPU). When the program you're running
-has no built-in queueing functionality, this is a simple way to get it done.
+This is useful for enqueueing long-running commands sharing a limited resource, like a video encoding (which pegs CPU at
+100%), rsync'ing files (which take up all upload bandwidth), or running a build script (which takes up all CPU).
+
+When the program you're running has no built-in queueing functionality, and you have no pre-determined list of jobs,
+such that running a shell script isn't an option, this is a simple way to get it done.
 
 ## Usage
 
@@ -36,7 +38,7 @@ be executed there.
 # this will be executed on the server process
 $ go run . sleep 10
 2022/01/21 10:30:33 connected. assuming client role
-2022/01/21 10:30:33 enqueued sleep at
+2022/01/21 10:30:33 enqueued 'sleep'
 ```
 
 ```shell
@@ -51,6 +53,12 @@ $ go run . sleep 10
 ```
 
 If the server already shut down, it will assume the server role and start executing & listening again. So no matter when
-& where you run `qme`, it will run the command now or after other queued commands finishes executing, but not at the same
-time.
+& where you run `qme`, it will run the command now or after other queued commands finishes executing, but not at the
+same time.
 
+
+## TODO
+
+- [ ] Make idle timeout configurable
+- [ ] Support separate queues (e.g. one queue for CPU-heavy, another one for network-heavy, etc.)
+- [ ] Support command weights, so that important commands are executed first
