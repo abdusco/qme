@@ -92,6 +92,32 @@ func (a *App) TryEnqueue(cmd *Command) (*EnqueuedCommand, error) {
 func (a *App) Serve() {
 	go a.processQueue()
 
+	stopSock := make(chan bool, 1)
+	go a.serveRpc(stopSock)
+
+	<-a.done
+
+	log.Println("idle timeout reached, shutting down")
+	close(a.cmdQueue)
+	stopSock <- true
+}
+
+func (a *App) ParseCommand(args []string, env []string) (*Command, error) {
+	if len(args) < 2 {
+		return nil, errors.New("usage: qme <command> <args>")
+	}
+
+	cwd, _ := os.Getwd()
+	cmd, args := args[1], args[2:]
+	return &Command{
+		WorkingDirectory: cwd,
+		Command:          cmd,
+		Args:             args,
+		Env:              env,
+	}, nil
+}
+
+func (a *App) serveRpc(stopCh chan bool) {
 	if err := os.RemoveAll(a.sockAddress); err != nil {
 		log.Printf("failed to remove old socket file: %s\n", err)
 	}
@@ -109,28 +135,13 @@ func (a *App) Serve() {
 	rpc.HandleHTTP()
 
 	log.Println("listening on", a.sockAddress)
-	go http.Serve(sock, nil)
 
-	<-a.done
+	go func() {
+		<-stopCh
+		sock.Close()
+	}()
 
-	log.Println("idle timeout reached, shutting down")
-	close(a.cmdQueue)
-	sock.Close()
-}
-
-func (a *App) ParseCommand(args []string, env []string) (*Command, error) {
-	if len(args) < 2 {
-		return nil, errors.New("usage: qme <command> <args>")
-	}
-
-	cwd, _ := os.Getwd()
-	cmd, args := args[1], args[2:]
-	return &Command{
-		WorkingDirectory: cwd,
-		Command:          cmd,
-		Args:             args,
-		Env:              env,
-	}, nil
+	http.Serve(sock, nil)
 }
 
 type CommandExecutor interface {
