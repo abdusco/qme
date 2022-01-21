@@ -18,7 +18,7 @@ func main() {
 	if err == nil {
 		_, err := app.TryEnqueue(cmd)
 		if err == nil {
-			log.Printf("enqueued %s at\n", cmd)
+			log.Printf("enqueued '%s'\n", cmd)
 			return
 		}
 	}
@@ -51,8 +51,8 @@ func (a *App) processQueue() {
 
 func (a *App) Enqueue(cmd *Command) (*EnqueuedCommand, error) {
 	go func() {
+		log.Printf("enqueueing '%s'\n", cmd)
 		a.cmdQueue <- cmd
-		log.Printf("enqueued %s\n", cmd)
 	}()
 	return &EnqueuedCommand{
 		Command:    *cmd,
