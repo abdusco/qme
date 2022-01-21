@@ -3,9 +3,7 @@ package main
 import (
 	"github.com/pkg/errors"
 	"log"
-	"net"
-	"net/http"
-	"net/rpc"
+	//"net/rpc"
 	"os"
 	"os/exec"
 	"time"
@@ -38,8 +36,7 @@ func (defaultClock) Now() time.Time {
 }
 
 type App struct {
-	sockAddress string
-	server      *Server
+	rpc         *Server
 	cmdQueue    chan *Command
 	quit        chan bool
 	executor    CommandExecutor
@@ -74,27 +71,14 @@ func (a *App) Enqueue(cmd *Command) (*EnqueuedCommand, error) {
 }
 
 func (a *App) TryEnqueue(cmd *Command) (*EnqueuedCommand, error) {
-	client, err := rpc.DialHTTP("unix", a.sockAddress)
-	if err != nil {
-		return nil, err
-	}
-	log.Println("connected. assuming client role")
-	defer client.Close()
-
-	var reply *EnqueuedCommand
-	err = client.Call("Server.Enqueue", cmd, &reply)
-	if err != nil {
-		return nil, errors.Wrap(err, "send command to server")
-	}
-
-	return reply, nil
+	return a.rpc.sendCommand(cmd)
 }
 
 func (a *App) Serve() {
 	go a.processQueue()
 
 	stopSock := make(chan bool, 1)
-	go a.serveRpc(stopSock)
+	go a.rpc.serve(stopSock)
 
 	<-a.quit
 
@@ -116,33 +100,6 @@ func (a *App) ParseCommand(args []string, env []string) (*Command, error) {
 		Args:             args,
 		Env:              env,
 	}, nil
-}
-
-func (a *App) serveRpc(stopCh chan bool) {
-	if err := os.RemoveAll(a.sockAddress); err != nil {
-		log.Printf("failed to remove old socket file: %s\n", err)
-	}
-
-	log.Println("assuming server role")
-	sock, err := net.Listen("unix", a.sockAddress)
-	if err != nil {
-		log.Fatalf("failed to listen: %s\n", err)
-	}
-
-	err = rpc.Register(a.server)
-	if err != nil {
-		log.Fatal("failed to set up rpc:", err)
-	}
-	rpc.HandleHTTP()
-
-	log.Println("listening on", a.sockAddress)
-
-	go func() {
-		<-stopCh
-		sock.Close()
-	}()
-
-	http.Serve(sock, nil)
 }
 
 type CommandExecutor interface {
@@ -179,13 +136,12 @@ func (e *defaultCommandExecutor) Execute(cmd *Command) {
 
 func NewApp(sockAddress string) *App {
 	a := &App{
-		sockAddress: sockAddress,
 		cmdQueue:    make(chan *Command),
 		quit:        make(chan bool),
 		executor:    &defaultCommandExecutor{},
 		clock:       &defaultClock{},
 		idleTimeout: time.Second * 20,
 	}
-	a.server = &Server{commandQueue: a}
+	a.rpc = &Server{commandQueue: a, sockAddress: sockAddress}
 	return a
 }
