@@ -27,12 +27,23 @@ func main() {
 	app.Serve()
 }
 
+type Clock interface {
+	Now() time.Time
+}
+
+type RealClock struct{}
+
+func (RealClock) Now() time.Time {
+	return time.Now()
+}
+
 type App struct {
 	sockAddress string
 	server      *Server
 	cmdQueue    chan *Command
 	done        chan bool
 	executor    CommandExecutor
+	clock       Clock
 }
 
 func (a *App) processQueue() {
@@ -57,7 +68,7 @@ func (a *App) Enqueue(cmd *Command) (*EnqueuedCommand, error) {
 	}()
 	return &EnqueuedCommand{
 		Command:    *cmd,
-		EnqueuedAt: time.Now(),
+		EnqueuedAt: a.clock.Now(),
 	}, nil
 }
 
@@ -160,6 +171,7 @@ func NewApp(sockAddress string) *App {
 		cmdQueue:    make(chan *Command),
 		done:        make(chan bool),
 		executor:    &OsCommandExecutor{},
+		clock:       &RealClock{},
 	}
 	a.server = &Server{commandQueue: a}
 	return a
