@@ -65,7 +65,7 @@ type fakeExecutor struct {
 	executed bool
 }
 
-func (e *fakeExecutor) Execute(cmd *Command) {
+func (e *fakeExecutor) Execute(cmd *Command, killCh <-chan bool) {
 	e.executed = true
 }
 
@@ -78,7 +78,8 @@ func TestApp_processQueue(t *testing.T) {
 			executor:    &fakeExecutor{},
 		}
 
-		go app.processQueue()
+		killCh := make(chan bool)
+		go app.processQueue(killCh)
 		app.cmdQueue <- &Command{}
 		<-app.quitCh
 
