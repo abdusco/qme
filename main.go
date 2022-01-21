@@ -31,9 +31,9 @@ type Clock interface {
 	Now() time.Time
 }
 
-type DefaultClock struct{}
+type defaultClock struct{}
 
-func (DefaultClock) Now() time.Time {
+func (defaultClock) Now() time.Time {
 	return time.Now()
 }
 
@@ -41,22 +41,23 @@ type App struct {
 	sockAddress string
 	server      *Server
 	cmdQueue    chan *Command
-	done        chan bool
+	quit        chan bool
 	executor    CommandExecutor
 	clock       Clock
+	idleTimeout time.Duration
 }
 
 func (a *App) processQueue() {
-	idleTimeout := make(<-chan time.Time)
+	timeout := make(<-chan time.Time)
 	for {
 		select {
-		case <-idleTimeout:
-			a.done <- true
+		case <-timeout:
+			a.quit <- true
 			return
 		case cmd := <-a.cmdQueue:
 			a.executor.Execute(cmd)
 			log.Println("idling...")
-			idleTimeout = time.After(time.Second * 20)
+			timeout = time.After(a.idleTimeout)
 		}
 	}
 }
@@ -95,11 +96,11 @@ func (a *App) Serve() {
 	stopSock := make(chan bool, 1)
 	go a.serveRpc(stopSock)
 
-	<-a.done
+	<-a.quit
 
 	log.Println("idle timeout reached, shutting down")
-	close(a.cmdQueue)
 	stopSock <- true
+	close(a.cmdQueue)
 }
 
 func (a *App) ParseCommand(args []string, env []string) (*Command, error) {
@@ -148,10 +149,10 @@ type CommandExecutor interface {
 	Execute(cmd *Command)
 }
 
-type DefaultCommandExecutor struct {
+type defaultCommandExecutor struct {
 }
 
-func (e *DefaultCommandExecutor) Execute(cmd *Command) {
+func (e *defaultCommandExecutor) Execute(cmd *Command) {
 	c := exec.Command(cmd.Command, cmd.Args...)
 	c.Stdout = os.Stdout
 	c.Stderr = os.Stderr
@@ -180,9 +181,10 @@ func NewApp(sockAddress string) *App {
 	a := &App{
 		sockAddress: sockAddress,
 		cmdQueue:    make(chan *Command),
-		done:        make(chan bool),
-		executor:    &DefaultCommandExecutor{},
-		clock:       &DefaultClock{},
+		quit:        make(chan bool),
+		executor:    &defaultCommandExecutor{},
+		clock:       &defaultClock{},
+		idleTimeout: time.Second * 20,
 	}
 	a.server = &Server{commandQueue: a}
 	return a

@@ -69,7 +69,8 @@ same time.
 
 ## TODO
 
-- [ ] Add tests!
+- [x] Add tests
+- [ ] Respect os signals
 - [ ] Make idle timeout configurable
 - [ ] Support separate queues (e.g. one queue for CPU-heavy, another one for network-heavy, etc.)
 - [ ] Support command weights, so that important commands are executed first
