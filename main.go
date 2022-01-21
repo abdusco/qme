@@ -11,18 +11,7 @@ import (
 
 func main() {
 	app := NewApp("/tmp/qme.sock")
-
-	cmd, err := app.ParseCommand(os.Args, os.Environ())
-	if err == nil {
-		_, err := app.TryEnqueue(cmd)
-		if err == nil {
-			log.Printf("enqueued '%s'\n", cmd)
-			return
-		}
-	}
-
-	app.Enqueue(cmd)
-	app.Serve()
+	app.Run()
 }
 
 type Clock interface {
@@ -70,7 +59,7 @@ func (a *App) Enqueue(cmd *Command) (*EnqueuedCommand, error) {
 	}, nil
 }
 
-func (a *App) TryEnqueue(cmd *Command) (*EnqueuedCommand, error) {
+func (a *App) SendCommand(cmd *Command) (*EnqueuedCommand, error) {
 	return a.rpc.sendCommand(cmd)
 }
 
@@ -100,6 +89,20 @@ func (a *App) ParseCommand(args []string, env []string) (*Command, error) {
 		Args:             args,
 		Env:              env,
 	}, nil
+}
+
+func (a *App) Run() {
+	cmd, err := a.ParseCommand(os.Args, os.Environ())
+	if err == nil {
+		_, err := a.SendCommand(cmd)
+		if err == nil {
+			log.Printf("enqueued '%s'\n", cmd)
+			return
+		}
+	}
+
+	a.Enqueue(cmd)
+	a.Serve()
 }
 
 type CommandExecutor interface {
