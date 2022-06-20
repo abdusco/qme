@@ -137,6 +137,14 @@ func (e *defaultCommandExecutor) Execute(cmd *Command, killCh <-chan bool) {
 	c.Dir = cmd.WorkingDirectory
 	c.Env = cmd.Env
 
+	go func() {
+		<-killCh
+		if c.Process != nil {
+			log.Printf("killing '%s'\n", cmd)
+			c.Process.Kill()
+		}
+	}()
+
 	err := c.Start()
 	if err != nil {
 		log.Printf("failed to execute command %s: %s\n", cmd.Command, err)
@@ -144,12 +152,6 @@ func (e *defaultCommandExecutor) Execute(cmd *Command, killCh <-chan bool) {
 	}
 
 	log.Printf("started executing '%s' with pid %d\n", cmd, c.Process.Pid)
-
-	go func() {
-		<-killCh
-		log.Printf("killing '%s'\n", cmd)
-		c.Process.Kill()
-	}()
 
 	err = c.Wait()
 	exitCode := c.ProcessState.ExitCode()
